@@ -1,59 +1,4 @@
 import React,{Component} from 'react';
-// class Music extends Component {
-//   constructor(props) {
-//     super(props);
-//     this.state = { play: false };
-//     this.url = "http://streaming.tdiradio.com:8000/house.mp3";
-//     this.audio = new Audio(this.url);
-//     // this.togglePlay = this.togglePlay.bind(this);
-//   }
-
-//   togglePlay = () => {
-//     this.setState({ play: !this.state.play });
-//     console.log(this.audio);
-//     this.state.play ? this.audio.pause() : this.audio.play();
-//   }
-
-//   render() {
-//     return (
-//       <div>
-//         <button onClick={this.togglePlay}>{this.state.play ? 'pause' : 'play'}</button>
-//       </div>
-//     );
-//   }
-// }
-
-// export default Music;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 export default class Drumlayout extends Component {
 
   constructor(props) {
@@ -120,18 +65,6 @@ export default class Drumlayout extends Component {
 
 
   }
-
-
-  // functiontofindIndexByKeyValue = (arraytosearch, key, valuetosearch) =>{
- 
-  //   for (var i = 0; i < arraytosearch.length; i++) {
-     
-  //   if (arraytosearch[i][key] === valuetosearch) {
-  //   return i;
-  //   }
-  //   }
-  //   return null;
-  //   }
 
   handleClick = (index) =>{
     // console.log(index);

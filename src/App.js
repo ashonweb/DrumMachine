@@ -13,7 +13,7 @@ class App extends Component {
           <p> Drum Machine</p>
         </header>
         <div>
-          <Drumlayout togglePlay = {this.togglePlay}/>
+          <Drumlayout/>
           
         </div>
       </div>
