@@ -10,5 +10,34 @@
   justify-content: center;
   font-size: calc(10px + 2vmin);
   color: white;
+  margin:-7px;
+}
+.drum-pad {
+  margin-left:0px;
+  margin-right:0px;
+  margin-top:14px;
+  position: relative;
+  width:auto;
+  height: 300px;
+  border-radius: 5px;
+  /* padding-top: 35px; */
+  box-sizing: border-box;
+  cursor: pointer;
+  /* background-color: yellow; */
+  color:red;
+  display: inline-block;
+  background-color: #888888;
+box-shadow: 1px 3px 2px 2px grey
+}
+
+.iactive {
+  padding:0px;
+  /* padding: 40px; */
+  /* margin-right: 10px; */
+  /* height: 116px; */
+  /* width: inherit; */
+  /* width: 0px; */
+  margin-left: 9px;
+  margin-top: 10px;
 }
 }

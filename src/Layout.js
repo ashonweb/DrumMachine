@@ -8,6 +8,22 @@ export default class Layout extends Component{
     }
   }
 
+  handleKeyPress = (e) =>{
+    if (e.keyCode === "Q") {
+      console.log("sdajhdjh")
+      this.playSound();
+    }
+  }
+
+  // playSound = (e)  => {
+  //   const sound = document.getElementById(this.props.id);
+  //   console.log("play sound 1");
+    
+    
+    
+    
+  // }
+
   powerbutton = () =>{
     // console.log(this.state.isPower)
    this.setState({
@@ -24,7 +40,7 @@ export default class Layout extends Component{
          
         </label>
 <div>
-<Drumlayout />
+  <Drumlayout togglePlay = {this.togglePlay}/>
 </div>
       </div>
 

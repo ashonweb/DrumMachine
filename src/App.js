@@ -3,6 +3,7 @@ import logo from './logo.svg';
 import './App.css';
 import './responsive.css';
 import Layout from './Layout';
+import Drumlayout from './Drumlayout'
 
 class App extends Component {
   render() {
@@ -12,7 +13,7 @@ class App extends Component {
           <p> Drum Machine</p>
         </header>
         <div>
-          <Layout />
+          <Drumlayout togglePlay = {this.togglePlay}/>
           
         </div>
       </div>
