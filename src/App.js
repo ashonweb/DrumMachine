@@ -1,8 +1,6 @@
 import React, { Component } from 'react';
-import logo from './logo.svg';
 import './App.css';
 import './responsive.css';
-import Layout from './Layout';
 import Drumlayout from './Drumlayout'
 
 class App extends Component {
