@@ -148,7 +148,8 @@ function encodePattern(steps, bpm, bankIdx, swing) {
 
 function decodePattern(str) {
   try {
-    const bytes = atob(str + '==').split('').map(c => c.charCodeAt(0));
+    const padded = str + '='.repeat((4 - str.length % 4) % 4);
+    const bytes = atob(padded).split('').map(c => c.charCodeAt(0));
     if (bytes.length < 3 + PAD_KEYS.length * 4) return null;
     let idx = 0;
     const bpm     = (bytes[idx++] || 0) + 40;
