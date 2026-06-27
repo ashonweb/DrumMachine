@@ -35,13 +35,14 @@ async function fetchBuffer(url) {
   return dec;
 }
 
-async function playAudio(url, vol, rvb) {
+async function playAudio(url, vol, rvb, rate = 1) {
   try {
     if (!_ctx) setupAudio();
     if (_ctx.state === 'suspended') await _ctx.resume();
     const buf  = await fetchBuffer(url);
     const src  = _ctx.createBufferSource();
     src.buffer = buf;
+    src.playbackRate.value = Math.max(0.05, rate);
     const gain = _ctx.createGain();
     gain.gain.value = Math.max(0, Math.min(2, vol));
     src.connect(gain);
@@ -112,6 +113,7 @@ const BANKS = [
 // Steps are now 0|1|2|3 per cell (off/ghost/normal/accent)
 const EMPTY_STEPS = () => Object.fromEntries(PAD_KEYS.map(k => [k, Array(16).fill(0)]));
 const EMPTY_MUTED = () => Object.fromEntries(PAD_KEYS.map(k => [k, false]));
+const EMPTY_PITCH = () => Object.fromEntries(PAD_KEYS.map(k => [k, 0])); // semitones
 
 const PRESETS = [
   {
@@ -177,8 +179,9 @@ const PRESETS = [
 ];
 
 // ── URL share encoding ────────────────────────────────────────────────────────
-// Binary-packed: 3 header bytes + 9 pads × 4 bytes (2 bits per step) = 39 bytes → ~52 char base64
-function encodePattern(steps, bpm, bankIdx, swing) {
+// Binary layout: 3 header + 16 pads×4 step bytes + 16 pitch bytes = 83 bytes → ~112 char base64
+// Pitch stored as semitones+24 (0-48) so it fits in one unsigned byte
+function encodePattern(steps, bpm, bankIdx, swing, pitch = {}) {
   const bytes = [
     Math.min(255, Math.max(0, bpm - 40)),
     bankIdx & 0xff,
@@ -189,13 +192,14 @@ function encodePattern(steps, bpm, bankIdx, swing) {
     for (let i = 0; i < 16; i += 4)
       bytes.push((row[i]&3) | ((row[i+1]&3)<<2) | ((row[i+2]&3)<<4) | ((row[i+3]&3)<<6));
   });
+  PAD_KEYS.forEach(k => bytes.push(Math.min(48, Math.max(0, (pitch[k] || 0) + 24))));
   return btoa(bytes.map(b => String.fromCharCode(b)).join('')).replace(/=/g, '');
 }
 
 function decodePattern(str) {
   try {
     const padded = str + '='.repeat((4 - str.length % 4) % 4);
-    const bytes = atob(padded).split('').map(c => c.charCodeAt(0));
+    const bytes  = atob(padded).split('').map(c => c.charCodeAt(0));
     if (bytes.length < 3 + PAD_KEYS.length * 4) return null;
     let idx = 0;
     const bpm     = (bytes[idx++] || 0) + 40;
@@ -209,7 +213,11 @@ function decodePattern(str) {
         steps[k].push(b&3, (b>>2)&3, (b>>4)&3, (b>>6)&3);
       }
     });
-    return { bpm, bankIdx: BANKS[bankIdx] ? bankIdx : 0, swing, steps };
+    // Pitch — optional block; old URLs without it decode fine (default 0)
+    const pitch = EMPTY_PITCH();
+    if (bytes.length >= idx + PAD_KEYS.length)
+      PAD_KEYS.forEach(k => { pitch[k] = (bytes[idx++] || 24) - 24; });
+    return { bpm, bankIdx: BANKS[bankIdx] ? bankIdx : 0, swing, steps, pitch };
   } catch { return null; }
 }
 
@@ -236,6 +244,7 @@ export default function App() {
   const [steps,       setSteps]       = useState(EMPTY_STEPS);
   const [muted,       setMuted]       = useState(EMPTY_MUTED);
   const [slot,        setSlot]        = useState('A');
+  const [pitch,       setPitch]       = useState(EMPTY_PITCH);
   // UI
   const [shareCopied, setShareCopied] = useState(false);
 
@@ -259,6 +268,7 @@ export default function App() {
   const slotsRef        = useRef({ A: EMPTY_STEPS(), B: EMPTY_STEPS() });
   const shareCopyTimer  = useRef(null);
   const slotRef         = useRef('A');
+  const pitchRef        = useRef(EMPTY_PITCH());
 
   // Keep refs in sync with state
   useEffect(() => { powerRef.current     = power;    }, [power]);
@@ -271,6 +281,7 @@ export default function App() {
   useEffect(() => { stepsRef.current     = steps;    }, [steps]);
   useEffect(() => { mutedRef.current     = muted;    }, [muted]);
   useEffect(() => { slotRef.current      = slot;     }, [slot]);
+  useEffect(() => { pitchRef.current     = pitch;    }, [pitch]);
 
   // Pre-fetch sounds when bank changes
   useEffect(() => {
@@ -289,6 +300,7 @@ export default function App() {
         setBpm(data.bpm);
         setBankIdx(data.bankIdx);
         setSwing(data.swing);
+        if (data.pitch) { pitchRef.current = data.pitch; setPitch(data.pitch); }
         window.history.replaceState({}, '', window.location.pathname);
       }
     }
@@ -303,8 +315,10 @@ export default function App() {
     if (!powerRef.current) return;
     const pad = BANKS[bankRef.current].pads.find(p => p.key === key);
     if (!pad) return;
-    playAudio(pad.url, volumeRef.current * volMult, reverbRef.current);
-    setDisplay(pad.name);
+    const st   = pitchRef.current[key] || 0;
+    const rate = Math.pow(2, st / 12);
+    playAudio(pad.url, volumeRef.current * volMult, reverbRef.current, rate);
+    setDisplay(st !== 0 ? `${pad.name}  ${st > 0 ? '+' : ''}${st}st` : pad.name);
     flashPad(key);
     if (recordingRef.current && recStartRef.current !== null)
       patternRef.current.push({ key, t: Date.now() - recStartRef.current });
@@ -477,7 +491,7 @@ export default function App() {
   }
 
   function handleShare() {
-    const url = `${window.location.origin}${window.location.pathname}?p=${encodePattern(steps, bpm, bankIdx, swing)}`;
+    const url = `${window.location.origin}${window.location.pathname}?p=${encodePattern(steps, bpm, bankIdx, swing, pitch)}`;
     navigator.clipboard.writeText(url)
       .then(() => {
         setShareCopied(true);
@@ -512,18 +526,40 @@ export default function App() {
           {/* Pads — 4×4 */}
           <div className="pad-section">
             <div className="pad-grid">
-              {bank.pads.map(pad => (
-                <button
-                  key={pad.key}
-                  className={`pad${active.has(pad.key) ? ' lit' : ''}${recording ? ' rec-mode' : ''}`}
-                  onPointerDown={() => triggerPad(pad.key)}
-                  disabled={!power}
-                >
-                  <span className="pad-key">{pad.key}</span>
-                  <span className="pad-name">{pad.name}</span>
-                </button>
-              ))}
+              {bank.pads.map(pad => {
+                const st = pitch[pad.key] || 0;
+                return (
+                  <button
+                    key={pad.key}
+                    className={`pad${active.has(pad.key) ? ' lit' : ''}${recording ? ' rec-mode' : ''}${st !== 0 ? ' pitched' : ''}`}
+                    onPointerDown={() => triggerPad(pad.key)}
+                    disabled={!power}
+                    onWheel={e => {
+                      e.preventDefault();
+                      if (!power) return;
+                      const dir = e.deltaY < 0 ? 1 : -1;
+                      setPitch(prev => ({ ...prev, [pad.key]: Math.min(24, Math.max(-24, (prev[pad.key] || 0) + dir)) }));
+                    }}
+                  >
+                    <span className="pad-key">{pad.key}</span>
+                    <span className="pad-name">{pad.name}</span>
+                    {st !== 0 && (
+                      <span
+                        className="pad-pitch"
+                        title="click to reset pitch"
+                        onPointerDown={e => {
+                          e.stopPropagation();
+                          setPitch(prev => ({ ...prev, [pad.key]: 0 }));
+                        }}
+                      >
+                        {st > 0 ? `+${st}` : st}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+            <p className="pitch-hint">scroll pad to tune · click badge to reset</p>
           </div>
 
           {/* Controls */}
