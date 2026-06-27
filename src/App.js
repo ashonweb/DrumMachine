@@ -59,38 +59,52 @@ async function playAudio(url, vol, rvb) {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BASE     = 'https://s3.amazonaws.com/freecodecamp/drums/';
-const PAD_KEYS = ['Q','W','E','A','S','D','Z','X','C'];
+const PAD_KEYS = ['1','2','3','4','Q','W','E','R','A','S','D','F','Z','X','C','V'];
 
 // Step velocity: 0=off, 1=ghost, 2=normal, 3=accent
 const STEP_VOL = [0, 0.38, 1.0, 1.32];
 
 const BANKS = [
   {
-    id: 'heater', name: 'Heater Kit',
+    id: 'heater', name: '808 Kit',
     pads: [
-      { key:'Q', name:'Heater 1',    url: BASE+'Heater-1.mp3'       },
-      { key:'W', name:'Heater 2',    url: BASE+'Heater-2.mp3'       },
-      { key:'E', name:'Heater 3',    url: BASE+'Heater-3.mp3'       },
-      { key:'A', name:'Heater 4',    url: BASE+'Heater-4_1.mp3'     },
-      { key:'S', name:'Clap',        url: BASE+'Heater-6.mp3'       },
-      { key:'D', name:'Open HH',     url: BASE+'Dsc_Oh.mp3'         },
-      { key:'Z', name:'Kick + HH',   url: BASE+'Kick_n_Hat.mp3'     },
-      { key:'X', name:'Kick',        url: BASE+'RP4_KICK_1.mp3'     },
-      { key:'C', name:'Closed HH',   url: BASE+'Cev_H2.mp3'        },
+      { key:'1', name:'Kick',      url: BASE+'RP4_KICK_1.mp3'     },
+      { key:'2', name:'Pnchy Kck', url: BASE+'punchy_kick_1.mp3'  },
+      { key:'3', name:'Kck+HH',    url: BASE+'Kick_n_Hat.mp3'     },
+      { key:'4', name:'Snare',     url: BASE+'Brk_Snr.mp3'        },
+      { key:'Q', name:'Sd Stick',  url: BASE+'side_stick_1.mp3'   },
+      { key:'W', name:'Clap',      url: BASE+'Heater-6.mp3'       },
+      { key:'E', name:'Open HH',   url: BASE+'Dsc_Oh.mp3'         },
+      { key:'R', name:'Cls HH',    url: BASE+'Cev_H2.mp3'        },
+      { key:'A', name:'Heater 1',  url: BASE+'Heater-1.mp3'       },
+      { key:'S', name:'Heater 2',  url: BASE+'Heater-2.mp3'       },
+      { key:'D', name:'Heater 3',  url: BASE+'Heater-3.mp3'       },
+      { key:'F', name:'Heater 4',  url: BASE+'Heater-4_1.mp3'     },
+      { key:'Z', name:'Chord 1',   url: BASE+'Chord_1.mp3'        },
+      { key:'X', name:'Chord 2',   url: BASE+'Chord_2.mp3'        },
+      { key:'C', name:'Chord 3',   url: BASE+'Chord_3.mp3'        },
+      { key:'V', name:'Bld H1',    url: BASE+'Bld_H1.mp3'        },
     ],
   },
   {
-    id: 'smooth', name: 'Smooth Piano',
+    id: 'groove', name: 'Groove Kit',
     pads: [
-      { key:'Q', name:'Chord 1',     url: BASE+'Chord_1.mp3'        },
-      { key:'W', name:'Chord 2',     url: BASE+'Chord_2.mp3'        },
-      { key:'E', name:'Chord 3',     url: BASE+'Chord_3.mp3'        },
-      { key:'A', name:'Give Light',  url: BASE+'Give_us_a_light.mp3'},
-      { key:'S', name:'Dry Ohh',     url: BASE+'Dry_Ohh.mp3'        },
-      { key:'D', name:'Bld H1',      url: BASE+'Bld_H1.mp3'        },
-      { key:'Z', name:'Punchy Kick', url: BASE+'punchy_kick_1.mp3'  },
-      { key:'X', name:'Side Stick',  url: BASE+'side_stick_1.mp3'   },
-      { key:'C', name:'Snare',       url: BASE+'Brk_Snr.mp3'       },
+      { key:'1', name:'Chord 1',   url: BASE+'Chord_1.mp3'        },
+      { key:'2', name:'Chord 2',   url: BASE+'Chord_2.mp3'        },
+      { key:'3', name:'Chord 3',   url: BASE+'Chord_3.mp3'        },
+      { key:'4', name:'Gv Light',  url: BASE+'Give_us_a_light.mp3'},
+      { key:'Q', name:'Dry Ohh',   url: BASE+'Dry_Ohh.mp3'        },
+      { key:'W', name:'Bld H1',    url: BASE+'Bld_H1.mp3'        },
+      { key:'E', name:'Heater 1',  url: BASE+'Heater-1.mp3'       },
+      { key:'R', name:'Heater 2',  url: BASE+'Heater-2.mp3'       },
+      { key:'A', name:'Pnchy Kck', url: BASE+'punchy_kick_1.mp3'  },
+      { key:'S', name:'Kick',      url: BASE+'RP4_KICK_1.mp3'     },
+      { key:'D', name:'Snare',     url: BASE+'Brk_Snr.mp3'        },
+      { key:'F', name:'Sd Stick',  url: BASE+'side_stick_1.mp3'   },
+      { key:'Z', name:'Open HH',   url: BASE+'Dsc_Oh.mp3'         },
+      { key:'X', name:'Cls HH',    url: BASE+'Cev_H2.mp3'        },
+      { key:'C', name:'Clap',      url: BASE+'Heater-6.mp3'       },
+      { key:'V', name:'Kck+HH',    url: BASE+'Kick_n_Hat.mp3'     },
     ],
   },
 ];
@@ -103,29 +117,31 @@ const PRESETS = [
   {
     name: 'Boom Bap',
     steps: {
-      X: [2,0,0,0,0,0,0,0,2,0,0,3,0,0,0,0],
-      S: [0,0,0,0,3,0,0,0,0,0,0,0,3,0,1,0],
-      C: [2,0,1,0,2,0,1,2,2,0,1,0,2,0,1,0],
-      D: [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2],
-      Z: [2,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0],
+      '1': [2,0,0,0,0,0,0,0,2,0,0,3,0,0,0,0], // Kick
+      '4': [0,0,0,0,3,0,0,0,0,0,0,0,3,0,1,0], // Snare
+      'R': [2,0,1,0,2,0,1,2,2,0,1,0,2,0,1,0], // Cls HH
+      'E': [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2], // Open HH
+      '2': [2,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0], // Pnchy Kck
     },
   },
   {
     name: '4 on Floor',
     steps: {
-      X: [3,0,0,0,3,0,0,0,3,0,0,0,3,0,0,0],
-      S: [0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0],
-      C: [2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1],
-      D: [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2],
+      '1': [3,0,0,0,3,0,0,0,3,0,0,0,3,0,0,0], // Kick
+      '4': [0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0], // Snare
+      'R': [2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1], // Cls HH
+      'E': [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2], // Open HH
+      'W': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0], // Clap
     },
   },
   {
     name: 'Breakbeat',
     steps: {
-      X: [3,0,0,1,0,0,2,0,3,0,0,0,0,2,0,0],
-      S: [0,0,2,0,0,0,0,3,0,1,0,0,0,0,2,0],
-      C: [2,0,1,2,0,2,1,0,2,0,2,1,0,2,1,0],
-      Z: [0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0],
+      '1': [3,0,0,1,0,0,2,0,3,0,0,0,0,2,0,0], // Kick
+      '4': [0,0,2,0,0,0,0,3,0,1,0,0,0,0,2,0], // Snare
+      'R': [2,0,1,2,0,2,1,0,2,0,2,1,0,2,1,0], // Cls HH
+      '2': [0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0], // Pnchy Kck
+      'W': [0,0,0,0,0,0,2,0,0,0,0,0,0,0,1,0], // Clap
     },
   },
 ];
@@ -267,7 +283,7 @@ export default function App() {
   // Keyboard
   useEffect(() => {
     function onKey(e) {
-      if (e.repeat) return;
+      if (e.repeat || e.metaKey || e.ctrlKey) return;
       const k = e.key.toUpperCase();
       if (k.length === 1 && PAD_KEYS.includes(k)) triggerPad(k);
     }
@@ -406,9 +422,9 @@ export default function App() {
   }
 
   function randomize() {
-    const kickKeys  = ['X', 'Z'];
-    const snareKeys = ['S', 'E'];
-    const hatKeys   = ['C', 'D'];
+    const kickKeys  = ['1', '2', '3'];
+    const snareKeys = ['4', 'W'];
+    const hatKeys   = ['E', 'R'];
     const s = EMPTY_STEPS();
     PAD_KEYS.forEach(k => {
       const isKick  = kickKeys.includes(k);
@@ -463,7 +479,7 @@ export default function App() {
         {/* ── Machine body ── */}
         <div className="machine-body">
 
-          {/* Pads */}
+          {/* Pads — 4×4 */}
           <div className="pad-section">
             <div className="pad-grid">
               {bank.pads.map(pad => (
