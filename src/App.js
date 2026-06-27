@@ -43,7 +43,7 @@ async function playAudio(url, vol, rvb) {
     const src  = _ctx.createBufferSource();
     src.buffer = buf;
     const gain = _ctx.createGain();
-    gain.gain.value = vol;
+    gain.gain.value = Math.max(0, Math.min(2, vol));
     src.connect(gain);
     if (rvb && _reverb) {
       const dry = _ctx.createGain(); dry.gain.value = 0.5; gain.connect(dry); dry.connect(_master);
@@ -53,13 +53,16 @@ async function playAudio(url, vol, rvb) {
     }
     src.start();
   } catch (_e) {
-    const a = new Audio(url); a.volume = vol; a.play().catch(() => {});
+    const a = new Audio(url); a.volume = Math.min(1, vol); a.play().catch(() => {});
   }
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BASE     = 'https://s3.amazonaws.com/freecodecamp/drums/';
 const PAD_KEYS = ['Q','W','E','A','S','D','Z','X','C'];
+
+// Step velocity: 0=off, 1=ghost, 2=normal, 3=accent
+const STEP_VOL = [0, 0.38, 1.0, 1.32];
 
 const BANKS = [
   {
@@ -92,93 +95,168 @@ const BANKS = [
   },
 ];
 
-const EMPTY_STEPS = () =>
-  Object.fromEntries(PAD_KEYS.map(k => [k, Array(16).fill(false)]));
+// Steps are now 0|1|2|3 per cell (off/ghost/normal/accent)
+const EMPTY_STEPS = () => Object.fromEntries(PAD_KEYS.map(k => [k, Array(16).fill(0)]));
+const EMPTY_MUTED = () => Object.fromEntries(PAD_KEYS.map(k => [k, false]));
 
 const PRESETS = [
   {
     name: 'Boom Bap',
     steps: {
-      X: [1,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0],
-      S: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-      C: [1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,0],
-      D: [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+      X: [2,0,0,0,0,0,0,0,2,0,0,3,0,0,0,0],
+      S: [0,0,0,0,3,0,0,0,0,0,0,0,3,0,1,0],
+      C: [2,0,1,0,2,0,1,2,2,0,1,0,2,0,1,0],
+      D: [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2],
+      Z: [2,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0],
     },
   },
   {
     name: '4 on Floor',
     steps: {
-      X: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
-      S: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-      C: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-      D: [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+      X: [3,0,0,0,3,0,0,0,3,0,0,0,3,0,0,0],
+      S: [0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0],
+      C: [2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1],
+      D: [0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,2],
     },
   },
   {
     name: 'Breakbeat',
     steps: {
-      X: [1,0,0,1,0,0,1,0,1,0,0,0,0,1,0,0],
-      S: [0,0,1,0,0,0,0,1,0,1,0,0,0,0,1,0],
-      C: [1,0,1,1,0,1,1,0,1,0,1,1,0,1,1,0],
-      Z: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+      X: [3,0,0,1,0,0,2,0,3,0,0,0,0,2,0,0],
+      S: [0,0,2,0,0,0,0,3,0,1,0,0,0,0,2,0],
+      C: [2,0,1,2,0,2,1,0,2,0,2,1,0,2,1,0],
+      Z: [0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0],
     },
   },
 ];
 
+// ── URL share encoding ────────────────────────────────────────────────────────
+// Binary-packed: 3 header bytes + 9 pads × 4 bytes (2 bits per step) = 39 bytes → ~52 char base64
+function encodePattern(steps, bpm, bankIdx, swing) {
+  const bytes = [
+    Math.min(255, Math.max(0, bpm - 40)),
+    bankIdx & 0xff,
+    Math.min(70, Math.max(0, swing)),
+  ];
+  PAD_KEYS.forEach(k => {
+    const row = steps[k] || Array(16).fill(0);
+    for (let i = 0; i < 16; i += 4)
+      bytes.push((row[i]&3) | ((row[i+1]&3)<<2) | ((row[i+2]&3)<<4) | ((row[i+3]&3)<<6));
+  });
+  return btoa(bytes.map(b => String.fromCharCode(b)).join('')).replace(/=/g, '');
+}
+
+function decodePattern(str) {
+  try {
+    const bytes = atob(str + '==').split('').map(c => c.charCodeAt(0));
+    if (bytes.length < 3 + PAD_KEYS.length * 4) return null;
+    let idx = 0;
+    const bpm     = (bytes[idx++] || 0) + 40;
+    const bankIdx = bytes[idx++] || 0;
+    const swing   = bytes[idx++] || 0;
+    const steps   = {};
+    PAD_KEYS.forEach(k => {
+      steps[k] = [];
+      for (let i = 0; i < 4; i++) {
+        const b = bytes[idx++] || 0;
+        steps[k].push(b&3, (b>>2)&3, (b>>4)&3, (b>>6)&3);
+      }
+    });
+    return { bpm, bankIdx: BANKS[bankIdx] ? bankIdx : 0, swing, steps };
+  } catch { return null; }
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  // Machine
   const [power,       setPower]       = useState(true);
+  // Sound
   const [bankIdx,     setBankIdx]     = useState(0);
   const [volume,      setVolume]      = useState(0.8);
+  const [reverb,      setReverb]      = useState(false);
+  // Display
   const [display,     setDisplay]     = useState('');
   const [active,      setActive]      = useState(new Set());
+  // Jam loop
   const [recording,   setRecording]   = useState(false);
   const [playing,     setPlaying]     = useState(false);
   const [hasPattern,  setHasPattern]  = useState(false);
+  // Sequencer
   const [bpm,         setBpm]         = useState(120);
-  const [reverb,      setReverb]      = useState(false);
+  const [swing,       setSwing]       = useState(0);
   const [seqPlaying,  setSeqPlaying]  = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const [steps,       setSteps]       = useState(EMPTY_STEPS);
+  const [muted,       setMuted]       = useState(EMPTY_MUTED);
+  const [slot,        setSlot]        = useState('A');
+  // UI
+  const [shareCopied, setShareCopied] = useState(false);
 
-  const powerRef     = useRef(true);
-  const bankRef      = useRef(0);
-  const volumeRef    = useRef(0.8);
-  const reverbRef    = useRef(false);
-  const recordingRef = useRef(false);
-  const bpmRef       = useRef(120);
-  const stepsRef     = useRef(steps);
-  const recStartRef  = useRef(null);
-  const patternRef   = useRef([]);
-  const loopIdsRef   = useRef([]);
-  const isLoopingRef = useRef(false);
-  const seqTimerRef  = useRef(null);
-  const tapTimesRef  = useRef([]);
-  const tapResetRef  = useRef(null);
+  // Refs (read by effects/timers without deps)
+  const powerRef        = useRef(true);
+  const bankRef         = useRef(0);
+  const volumeRef       = useRef(0.8);
+  const reverbRef       = useRef(false);
+  const recordingRef    = useRef(false);
+  const bpmRef          = useRef(120);
+  const swingRef        = useRef(0);
+  const stepsRef        = useRef(steps);
+  const mutedRef        = useRef(EMPTY_MUTED());
+  const recStartRef     = useRef(null);
+  const patternRef      = useRef([]);
+  const loopIdsRef      = useRef([]);
+  const isLoopingRef    = useRef(false);
+  const seqTimerRef     = useRef(null);
+  const tapTimesRef     = useRef([]);
+  const tapResetRef     = useRef(null);
+  const slotsRef        = useRef({ A: EMPTY_STEPS(), B: EMPTY_STEPS() });
+  const shareCopyTimer  = useRef(null);
+  const slotRef         = useRef('A');
 
+  // Keep refs in sync with state
   useEffect(() => { powerRef.current     = power;    }, [power]);
   useEffect(() => { bankRef.current      = bankIdx;  }, [bankIdx]);
   useEffect(() => { volumeRef.current    = volume;   }, [volume]);
   useEffect(() => { reverbRef.current    = reverb;   }, [reverb]);
   useEffect(() => { recordingRef.current = recording;}, [recording]);
   useEffect(() => { bpmRef.current       = bpm;      }, [bpm]);
+  useEffect(() => { swingRef.current     = swing;    }, [swing]);
   useEffect(() => { stepsRef.current     = steps;    }, [steps]);
+  useEffect(() => { mutedRef.current     = muted;    }, [muted]);
+  useEffect(() => { slotRef.current      = slot;     }, [slot]);
 
   // Pre-fetch sounds when bank changes
   useEffect(() => {
     BANKS[bankIdx].pads.forEach(p => fetchBuffer(p.url).catch(() => {}));
   }, [bankIdx]);
 
+  // Load shared pattern from URL on mount
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('p');
+    if (p) {
+      const data = decodePattern(p);
+      if (data) {
+        stepsRef.current     = data.steps;
+        slotsRef.current.A   = data.steps;
+        setSteps(data.steps);
+        setBpm(data.bpm);
+        setBankIdx(data.bankIdx);
+        setSwing(data.swing);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const flashPad = useCallback((key) => {
     setActive(s => new Set(s).add(key));
     setTimeout(() => setActive(s => { const n = new Set(s); n.delete(key); return n; }), 200);
   }, []);
 
-  const triggerPad = useCallback((key) => {
+  const triggerPad = useCallback((key, volMult = 1) => {
     if (!powerRef.current) return;
     const pad = BANKS[bankRef.current].pads.find(p => p.key === key);
     if (!pad) return;
-    playAudio(pad.url, volumeRef.current, reverbRef.current);
+    playAudio(pad.url, volumeRef.current * volMult, reverbRef.current);
     setDisplay(pad.name);
     flashPad(key);
     if (recordingRef.current && recStartRef.current !== null)
@@ -196,22 +274,27 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [triggerPad]);
 
-  // Sequencer — recursive setTimeout so BPM changes take effect next step
+  // Sequencer — recursive setTimeout with swing timing and velocity
   useEffect(() => {
     if (!seqPlaying) { setCurrentStep(-1); return; }
     let step = 0;
     function tick() {
-      const ms = (60 / bpmRef.current / 4) * 1000; // eslint-disable-line react-hooks/exhaustive-deps
+      const ms = (60 / bpmRef.current / 4) * 1000;
+      const sw = swingRef.current / 100;
+      // Even steps get stretched, odd steps get compressed → swing feel
+      // Total per pair stays 2×ms regardless of swing amount
+      const nextMs = step % 2 === 0 ? ms * (1 + sw) : ms * (1 - sw);
       setCurrentStep(step);
-      Object.entries(stepsRef.current).forEach(([key, arr]) => { // eslint-disable-line react-hooks/exhaustive-deps
-        if (arr[step]) triggerPad(key);
+      Object.entries(stepsRef.current).forEach(([key, arr]) => {
+        const val = arr[step];
+        if (val > 0 && !mutedRef.current[key]) triggerPad(key, STEP_VOL[val]);
       });
       step = (step + 1) % 16;
-      seqTimerRef.current = setTimeout(tick, ms);
+      seqTimerRef.current = setTimeout(tick, nextMs);
     }
-    seqTimerRef.current = setTimeout(tick, (60 / bpmRef.current / 4) * 1000); // eslint-disable-line react-hooks/exhaustive-deps
+    seqTimerRef.current = setTimeout(tick, (60 / bpmRef.current / 4) * 1000);
     return () => clearTimeout(seqTimerRef.current);
-  }, [seqPlaying, triggerPad]);
+  }, [seqPlaying, triggerPad]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jam loop playback
   const stopLoop = useCallback(() => {
@@ -242,7 +325,7 @@ export default function App() {
     scheduleLoop();
   }, [scheduleLoop]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────────────────
   function handlePower() {
     const next = !power;
     setPower(next);
@@ -283,14 +366,78 @@ export default function App() {
     }
   }
 
+  // Cycle: off(0) → normal(2) → accent(3) → ghost(1) → off(0)
   function toggleStep(key, i) {
-    setSteps(prev => ({ ...prev, [key]: prev[key].map((v, j) => j === i ? !v : v) }));
+    setSteps(prev => {
+      const cur  = prev[key][i];
+      const next = cur === 0 ? 2 : cur === 2 ? 3 : cur === 3 ? 1 : 0;
+      return { ...prev, [key]: prev[key].map((v, j) => j === i ? next : v) };
+    });
+  }
+
+  function toggleMute(key) {
+    setMuted(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  // Save current to slotsRef, load new slot
+  function switchSlot(newSlot) {
+    if (newSlot === slot) return;
+    slotsRef.current[slotRef.current] = stepsRef.current;
+    setSlot(newSlot);
+    const newSteps = slotsRef.current[newSlot];
+    stepsRef.current = newSteps;
+    setSteps(newSteps);
   }
 
   function applyPreset(preset) {
     const s = EMPTY_STEPS();
-    Object.entries(preset.steps).forEach(([key, arr]) => { s[key] = arr.map(Boolean); });
+    Object.entries(preset.steps).forEach(([key, arr]) => { s[key] = arr.slice(); });
+    stepsRef.current = s;
+    slotsRef.current[slotRef.current] = s;
     setSteps(s);
+  }
+
+  function clearSteps() {
+    const s = EMPTY_STEPS();
+    stepsRef.current = s;
+    slotsRef.current[slotRef.current] = s;
+    setSteps(s);
+  }
+
+  function randomize() {
+    const kickKeys  = ['X', 'Z'];
+    const snareKeys = ['S', 'E'];
+    const hatKeys   = ['C', 'D'];
+    const s = EMPTY_STEPS();
+    PAD_KEYS.forEach(k => {
+      const isKick  = kickKeys.includes(k);
+      const isSnare = snareKeys.includes(k);
+      const isHat   = hatKeys.includes(k);
+      s[k] = Array(16).fill(0).map((_, i) => {
+        let p;
+        if      (isKick)  p = (i % 4 === 0) ? 0.65 : 0.1;
+        else if (isSnare) p = (i === 4 || i === 12) ? 0.8 : 0.07;
+        else if (isHat)   p = 0.4;
+        else              p = 0.12;
+        if (Math.random() >= p) return 0;
+        const r = Math.random();
+        return r < 0.12 ? 3 : r < 0.28 ? 1 : 2; // accent / ghost / normal
+      });
+    });
+    stepsRef.current = s;
+    slotsRef.current[slotRef.current] = s;
+    setSteps(s);
+  }
+
+  function handleShare() {
+    const url = `${window.location.origin}${window.location.pathname}?p=${encodePattern(steps, bpm, bankIdx, swing)}`;
+    navigator.clipboard.writeText(url)
+      .then(() => {
+        setShareCopied(true);
+        clearTimeout(shareCopyTimer.current);
+        shareCopyTimer.current = setTimeout(() => setShareCopied(false), 2500);
+      })
+      .catch(() => window.prompt('Copy link:', url));
   }
 
   const bank = BANKS[bankIdx];
@@ -339,9 +486,13 @@ export default function App() {
             <div className="display">
               <Waveform />
               <div className="disp-overlay">
-                {recording && <span className="disp-badge rec-badge">● REC</span>}
-                {playing   && <span className="disp-badge play-badge">▶ LOOP</span>}
-                {seqPlaying && <span className="disp-badge seq-badge">◉ {bpm} BPM</span>}
+                {recording  && <span className="disp-badge rec-badge">● REC</span>}
+                {playing    && <span className="disp-badge play-badge">▶ LOOP</span>}
+                {seqPlaying && (
+                  <span className="disp-badge seq-badge">
+                    ◉ {bpm} BPM{swing > 0 ? ` · ${swing}% sw` : ''}
+                  </span>
+                )}
                 {!recording && !playing && !seqPlaying && display && (
                   <span className="disp-text">{display}</span>
                 )}
@@ -425,23 +576,46 @@ export default function App() {
 
         {/* ── Sequencer ── */}
         <div className="seq-section">
-          <div className="seq-toprow">
+
+          {/* Header row 1: label + swing */}
+          <div className="seq-hdr1">
             <span className="seq-label">SEQUENCER</span>
-            <div className="seq-actions">
-              {PRESETS.map(p => (
-                <button key={p.name} className="preset-btn" disabled={!power} onClick={() => applyPreset(p)}>
-                  {p.name}
-                </button>
-              ))}
-              <button className="preset-btn clear-btn" onClick={() => setSteps(EMPTY_STEPS)}>Clear</button>
-              <button className={`seq-play-btn${seqPlaying?' playing':''}`} disabled={!power}
-                onClick={() => setSeqPlaying(p => !p)}>
-                {seqPlaying ? '■ STOP' : '▶ START'}
-              </button>
+            <div className="swing-group">
+              <span className="ctrl-label">SWING</span>
+              <div className="slider-track swing-slider">
+                <div className="slider-fill" style={{ width:`${(swing/70)*100}%` }} />
+                <input type="range" min="0" max="70" step="1" className="vol-range"
+                  value={swing} disabled={!power}
+                  onChange={e => setSwing(+e.target.value)} />
+              </div>
+              <span className="ctrl-val swing-val">{swing > 0 ? `${swing}%` : 'off'}</span>
             </div>
           </div>
 
-          {/* Beat numbers */}
+          {/* Header row 2: slots + actions */}
+          <div className="seq-hdr2">
+            <div className="slot-group">
+              <button className={`slot-btn${slot==='A'?' sel':''}`} disabled={!power} onClick={() => switchSlot('A')}>A</button>
+              <button className={`slot-btn${slot==='B'?' sel':''}`} disabled={!power} onClick={() => switchSlot('B')}>B</button>
+            </div>
+            <div className="seq-sep" />
+            {PRESETS.map(p => (
+              <button key={p.name} className="preset-btn" disabled={!power} onClick={() => applyPreset(p)}>
+                {p.name}
+              </button>
+            ))}
+            <button className="preset-btn clear-btn" disabled={!power} onClick={clearSteps}>Clear</button>
+            <button className="preset-btn rand-btn"  disabled={!power} onClick={randomize}>Random</button>
+            <button className={`share-btn${shareCopied?' copied':''}`} onClick={handleShare}>
+              {shareCopied ? '✓ Copied' : '↗ Share'}
+            </button>
+            <button className={`seq-play-btn${seqPlaying?' playing':''}`} disabled={!power}
+              onClick={() => setSeqPlaying(p => !p)}>
+              {seqPlaying ? '■ STOP' : '▶ START'}
+            </button>
+          </div>
+
+          {/* Beat number labels */}
           <div className="seq-nums-row">
             <div className="seq-row-label" />
             <div className="seq-grid">
@@ -455,25 +629,48 @@ export default function App() {
 
           {/* Step rows */}
           {bank.pads.map(pad => (
-            <div key={pad.key} className="seq-row">
+            <div key={pad.key} className={`seq-row${muted[pad.key] ? ' row-muted' : ''}`}>
               <div className="seq-row-label">
+                <button
+                  className={`mute-btn${muted[pad.key] ? ' muted' : ''}`}
+                  onClick={() => toggleMute(pad.key)}
+                  title={muted[pad.key] ? 'Unmute' : 'Mute'}
+                >M</button>
                 <span className="sq-key">{pad.key}</span>
                 <span className="sq-name">{pad.name}</span>
               </div>
               <div className="seq-grid">
-                {Array(16).fill(0).map((_, i) => (
-                  <button
-                    key={i}
-                    className={`step${steps[pad.key]?.[i]?' on':''}${currentStep===i&&seqPlaying?' now':''}${i%4===0?' beat-start':''}`}
-                    onClick={() => toggleStep(pad.key, i)}
-                    disabled={!power}
-                  />
-                ))}
+                {Array(16).fill(0).map((_, i) => {
+                  const val = steps[pad.key]?.[i] ?? 0;
+                  return (
+                    <button
+                      key={i}
+                      className={[
+                        'step',
+                        val === 1 ? 'ghost'  : '',
+                        val === 2 ? 'on'     : '',
+                        val === 3 ? 'accent' : '',
+                        currentStep === i && seqPlaying ? 'now' : '',
+                        i % 4 === 0 ? 'beat-start' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => toggleStep(pad.key, i)}
+                      disabled={!power}
+                    />
+                  );
+                })}
               </div>
             </div>
           ))}
-        </div>
 
+          {/* Velocity legend */}
+          <div className="vel-legend">
+            <span className="vel-dot ghost-dot" />ghost
+            <span className="vel-dot on-dot" />normal
+            <span className="vel-dot accent-dot" />accent
+            <span className="vel-hint">· click to cycle</span>
+          </div>
+
+        </div>
       </div>
     </div>
   );
